@@ -1,14 +1,14 @@
 {
-  "name": "ahmed-x-storez",
+  "name": "ahmed-x-storez-node",
   "version": "1.0.0",
-  "description": "Premium Bot",
+  "description": "ULTRA PREMIUM BOT",
   "main": "index.js",
-  "dependencies": {
-    "telegram": "^2.22.2",
-    "mongoose": "^8.0.0",
-    "puppeteer": "^21.0.0"
-  },
   "scripts": {
     "start": "node index.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.15.3",
+    "mongoose": "^8.0.0",
+    "puppeteer": "^21.0.0"
   }
 }
