@@ -1,8 +1,14 @@
-# 1. Folder ke andar jao
-cd /sdcard/ahmed_fixer
-
-# 2. Check karo ki file wahan hai ya nahi (bot.py dikhna chahiye)
-ls
-
-# 3. Bot ko start karo
-python bot.py
+{
+  "name": "ahmed-x-storez",
+  "version": "1.0.0",
+  "description": "Premium Bot",
+  "main": "index.js",
+  "dependencies": {
+    "telegram": "^2.22.2",
+    "mongoose": "^8.0.0",
+    "puppeteer": "^21.0.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
