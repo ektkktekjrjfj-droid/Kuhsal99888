@@ -1,89 +1,98 @@
-import asyncio
 import os
+import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from pyrogram import Client, filters
 
 # --- [ CONFIG ] ---
-API_ID = 21552435
+API_ID = 6632236983
 API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
 BOT_TOKEN = "8464390807:AAGVxObZ60Se34Kjo3nX34I0iDa8VBAcsRY"
 
-app = Client("AhmedX_AutoFix", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# 👑 OWNER ID (Yahan apni Telegram ID dalo)
+OWNER_ID = 123456789 
 
-user_data = {}
+app = Client("AhmedX_Final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-async def automation_logic(client, message, user, pwd):
+# Selenium Setup for Cloud
+def get_driver():
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    
-    # 🔥 RENDER CLOUD PATH FIX:
-    # Render par Chrome yahan hota hai:
     options.binary_location = "/usr/bin/google-chrome"
+    service = Service()
+    return webdriver.Chrome(service=service, options=options)
+
+# --- [ SIDE MENU COMMANDS SETUP ] ---
+async def set_commands():
+    async with app:
+        await app.set_bot_commands([
+            BotCommand("start", "🚀 Bot ko start karein"),
+            BotCommand("indofix", "🛠 Indo Fix System (Owner Only)"),
+            BotCommand("help", "❓ Help aur Jankari")
+        ])
+        print("✅ Side Menu Commands Updated!")
+
+# --- [ START COMMAND WITH PHOTO ] ---
+@app.on_message(filters.command("start") & filters.user(OWNER_ID))
+async def start(client, message):
+    # Aap is link ko apni kisi bhi image link se badal sakte hain
+    photo_url = "https://telegra.ph/file/your_image_link.jpg" 
+    welcome_text = (
+        "🔥 **WELCOME OWNER: AHMED X STOREZ**\n\n"
+        "✨ **PREMIUM SETUP X** is active.\n"
+        "☁️ Server: **Render Cloud (Online)**\n\n"
+        "Aapki commands niche menu mein set kar di gayi hain."
+    )
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🛠 Use Indo Fix", callback_data="run_fix")],
+        [InlineKeyboardButton("👤 Support", url="t.me/your_username")]
+    ])
     
-    # Render par Driver system path mein hota hai, isliye hum isse direct call karenge
-    service = Service() 
-    
-    driver = None
     try:
-        driver = webdriver.Chrome(service=service, options=options)
-        
-        # Step 1: Login
+        await message.reply_photo(photo=photo_url, caption=welcome_text, reply_markup=buttons)
+    except:
+        await message.reply_text(welcome_text, reply_markup=buttons)
+
+# --- [ INDOFIX COMMAND ] ---
+@app.on_message(filters.command("indofix"))
+async def indofix(client, message):
+    if message.from_user.id != OWNER_ID:
+        return await message.reply("❌ **Access Denied:** Ye bot sirf Owner ke liye hai.")
+
+    args = message.text.split()
+    if len(args) < 3:
+        return await message.reply("📝 **Usage:** `/indofix user pass` (Ya menu se select karein)")
+    
+    msg = await message.reply("⚙️ **Ahmed X Auto-System Starting...**")
+    
+    try:
+        driver = get_driver()
         driver.get("https://business.facebook.com/business/loginpage/")
         await asyncio.sleep(5)
         
-        driver.find_element(By.NAME, "email").send_keys(user)
-        driver.find_element(By.NAME, "pass").send_keys(pwd)
+        driver.find_element(By.NAME, "email").send_keys(args[1])
+        driver.find_element(By.NAME, "pass").send_keys(args[2])
         driver.find_element(By.NAME, "login").click()
         await asyncio.sleep(10)
         
-        # Step 2: 2FA Check
-        if "checkpoint" in driver.current_url:
-            await message.reply("🔐 **Bhai Code (OTP) Maang Raha Hai!**\nJaldi se code yahan likho:")
-            user_data[message.from_user.id] = None
-            
-            for _ in range(60):
-                if user_data.get(message.from_user.id):
-                    otp = user_data[message.from_user.id]
-                    driver.find_element(By.ID, "approvals_code").send_keys(otp)
-                    driver.find_element(By.ID, "checkpointSubmitButton").click()
-                    await asyncio.sleep(5)
-                    del user_data[message.from_user.id]
-                    break
-                await asyncio.sleep(1)
-        
-        # Step 3: Indo Fix Hit
         driver.get("https://business.facebook.com/?nav_ref=biz_unified_f3_login_page_to_mbs")
         await asyncio.sleep(5)
         
         driver.quit()
-        return "✅ **Ahmed X Fixer:** Account successfully link ho gaya!"
-
+        await msg.edit("✅ **Ahmed X Fixer:** Success! Account processed.")
     except Exception as e:
-        if driver:
-            driver.quit()
-        return f"❌ **Error:** {str(e)}"
+        if 'driver' in locals(): driver.quit()
+        await msg.edit(f"❌ **Cloud Error:** {str(e)}")
 
-@app.on_message(filters.command("indofix"))
-async def start_fix(client, message):
-    args = message.text.split()
-    if len(args) < 3:
-        return await message.reply("📝 **Usage:** `/indofix username password`")
+if __name__ == "__main__":
+    # Bot start hote hi menu commands set karega
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(set_commands())
     
-    status = await message.reply("⚙️ **Ahmed X Auto-System Started...**")
-    res = await automation_logic(client, message, args[1], args[2])
-    await status.edit(res)
-
-@app.on_message(filters.text & ~filters.command("indofix"))
-async def catch_otp(client, message):
-    if message.from_user.id in user_data:
-        user_data[message.from_user.id] = message.text
-        await message.reply("📥 **OTP mil gaya!** Aage badh raha hoon...")
-
-print("🔥 AHMED X CLOUD BOT IS RUNNING...")
-app.run()
+    print("🚀 AHMED X PREMIUM BOT IS LIVE...")
+    app.run()
