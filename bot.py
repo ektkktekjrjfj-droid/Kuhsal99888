@@ -3,34 +3,30 @@ import asyncio
 import logging
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
+from motor.motor_asyncio import AsyncIOMotorClient
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
-# Logging taaki Render ke logs mein sab dikhe
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 
 # --- [ CONFIG ] ---
 API_ID = 21552435
 API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
 BOT_TOKEN = "8464390807:AAGVxObZ60Se34Kjo3nX34I0iDa8VBAcsRY"
-
-# ✅ UPDATED OWNER ID
 OWNER_ID = 6632236983 
 
-app = Client("AhmedX_Final_Fix", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# MongoDB Connection
+MONGO_URL = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+db_client = AsyncIOMotorClient(MONGO_URL)
+db = db_client["AhmedX_Storez"]
+auth_col = db["authorized_users"] 
 
-# Side Menu Setup (Automation)
-async def setup_menu():
-    async with app:
-        await app.set_bot_commands([
-            BotCommand("start", "🚀 Start Premium Bot"),
-            BotCommand("indofix", "🛠 Indo Fix System (Owner Only)")
-        ])
-        print("✅ Side Menu Set Successfully!")
+app = Client("AhmedX_Final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Selenium Driver Setup for Render
+# --- [ HELPERS ] ---
 def get_driver():
     options = Options()
     options.add_argument("--headless")
@@ -40,68 +36,84 @@ def get_driver():
     service = Service()
     return webdriver.Chrome(service=service, options=options)
 
-# --- [ WELCOME MESSAGE (OWNER ONLY) ] ---
-@app.on_message(filters.command("start") & filters.user(OWNER_ID))
-async def start(client, message):
-    # Aap kisi bhi photo ka direct link yahan daal sakte hain
-    photo_url = "https://telegra.ph/file/2e8790380c5e732381284.jpg" 
-    
-    welcome_text = (
-        "🔥 **WELCOME OWNER: AHMED X STOREZ**\n\n"
-        "✨ **PREMIUM SETUP X** is active.\n"
-        "☁️ Status: **Render Cloud (Online)**\n"
-        "🛠 Menu: **Side Commands Activated**\n\n"
-        "Aap niche Menu button se `/indofix` select kar sakte hain."
-    )
-    
-    buttons = InlineKeyboardMarkup([
-        [InlineKeyboardButton("👤 Developer", url="t.me/kushal_storez")]
-    ])
-    
-    try:
-        await message.reply_photo(photo=photo_url, caption=welcome_text, reply_markup=buttons)
-    except:
-        await message.reply_text(welcome_text, reply_markup=buttons)
+async def is_authorized(user_id):
+    if user_id == OWNER_ID:
+        return True
+    user = await auth_col.find_one({"user_id": user_id})
+    return True if user else False
 
-# --- [ INDOFIX COMMAND (OWNER ONLY) ] ---
+# --- [ SIDE MENU SETUP ] ---
+async def setup_bot():
+    async with app:
+        await app.set_bot_commands([
+            BotCommand("start", "🚀 Start Premium Bot"),
+            BotCommand("indofix", "🛠 Run Indo Fix System"),
+            BotCommand("add", "➕ User Add (Admin)"),
+            BotCommand("remove", "➖ User Remove (Admin)"),
+            BotCommand("users", "👥 Authorized List")
+        ])
+
+# --- [ ADMIN COMMANDS ] ---
+
+@app.on_message(filters.command("add") & filters.user(OWNER_ID))
+async def add_user(client, message):
+    if len(message.command) < 2:
+        return await message.reply("📝 Usage: `/add 123456789`")
+    target_id = int(message.command[1])
+    await auth_col.update_one({"user_id": target_id}, {"$set": {"auth": True}}, upsert=True)
+    await message.reply(f"✅ User `{target_id}` Authorized!")
+
+@app.on_message(filters.command("remove") & filters.user(OWNER_ID))
+async def remove_user(client, message):
+    if len(message.command) < 2:
+        return await message.reply("📝 Usage: `/remove 123456789`")
+    target_id = int(message.command[1])
+    await auth_col.delete_one({"user_id": target_id})
+    await message.reply(f"➖ User `{target_id}` Removed!")
+
+@app.on_message(filters.command("users") & filters.user(OWNER_ID))
+async def list_users(client, message):
+    users = await auth_col.find().to_list(length=100)
+    reply = "👥 **Authorized Users:**\n" + "\n".join([f"• `{u['user_id']}`" for u in users])
+    await message.reply(reply if users else "List khali hai.")
+
+# --- [ BOT LOGIC ] ---
+
+@app.on_message(filters.command("start"))
+async def start(client, message):
+    auth = await is_authorized(message.from_user.id)
+    photo = "https://telegra.ph/file/2e8790380c5e732381284.jpg"
+    text = f"🔥 **AHMED X STOREZ PREMIUM**\n\n👤: {message.from_user.first_name}\n🛡: {'✅ Authorized' if auth else '❌ No Access'}"
+    await message.reply_photo(photo=photo, caption=text)
+
 @app.on_message(filters.command("indofix"))
 async def indofix(client, message):
-    # Security Check
-    if message.from_user.id != OWNER_ID:
-        return await message.reply("❌ **Access Denied:** Ye bot sirf Owner ke liye hai.")
+    if not await is_authorized(message.from_user.id):
+        return await message.reply("❌ Access Denied!")
 
     args = message.text.split()
     if len(args) < 3:
-        return await message.reply("📝 **Usage:** `/indofix username password`")
+        return await message.reply("📝 Usage: `/indofix user pass`")
     
-    msg = await message.reply("⚙️ **Ahmed X Auto-System Engine Starting...**")
-    
+    status = await message.reply("⚙️ **Processing Account...**")
     driver = None
     try:
         driver = get_driver()
         driver.get("https://business.facebook.com/business/loginpage/")
         await asyncio.sleep(5)
-        
         driver.find_element(By.NAME, "email").send_keys(args[1])
         driver.find_element(By.NAME, "pass").send_keys(args[2])
         driver.find_element(By.NAME, "login").click()
         await asyncio.sleep(10)
-        
-        # Indo Fix Final Hit
         driver.get("https://business.facebook.com/?nav_ref=biz_unified_f3_login_page_to_mbs")
         await asyncio.sleep(5)
-        
-        await msg.edit("✅ **Ahmed X Fixer:** Account processed successfully!")
+        await status.edit("✅ **Indo Fix Success!**")
     except Exception as e:
-        await msg.edit(f"❌ **Cloud Error:** {str(e)}")
+        await status.edit(f"❌ **Error:** {str(e)}")
     finally:
-        if driver:
-            driver.quit()
+        if driver: driver.quit()
 
 if __name__ == "__main__":
-    # Commands set karke bot start karein
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(setup_menu())
-    
-    print("🚀 AHMED X PREMIUM BOT IS LIVE!")
+    loop.run_until_complete(setup_bot())
     app.run()
