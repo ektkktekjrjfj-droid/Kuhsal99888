@@ -1,0 +1,8 @@
+# 1. Folder ke andar jao
+cd /sdcard/ahmed_fixer
+
+# 2. Check karo ki file wahan hai ya nahi (bot.py dikhna chahiye)
+ls
+
+# 3. Bot ko start karo
+python bot.py
