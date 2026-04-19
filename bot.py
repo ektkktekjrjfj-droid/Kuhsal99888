@@ -2,7 +2,6 @@ import os
 import asyncio
 import logging
 from pyrogram import Client, filters
-from pyrogram.types import BotCommand
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # LOGGING
@@ -14,13 +13,13 @@ API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
 BOT_TOKEN = "8464390807:AAGVxObZ60Se34Kjo3nX34I0iDa8VBAcsRY"
 OWNER_ID = 6632236983 
 
-# MONGODB
+# MONGODB CONNECTION
 MONGO_URL = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 db_client = AsyncIOMotorClient(MONGO_URL)
 db = db_client["AHMEDX_DB"]
 auth_col = db["AUTH_USERS"] 
 
-app = Client("AHMEDX_SAFE", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("AHMEDX_FINAL_FIX", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ UI DESIGN ] ---
 BR = "━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -44,7 +43,7 @@ async def start(client, message):
         f"👤 **USER:** {message.from_user.first_name.upper()}\n"
         f"🆔 **ID:** `{message.from_user.id}`\n"
         f"🛡 **STATUS:** {STATUS}\n"
-        f"🌐 **ENGINE:** RENDER LIGHT V1\n"
+        f"🌐 **SERVER:** RENDER CLOUD [LIVE]\n"
         f"{BR}\n"
         f"✨ **PREMIUM SETUP X ACTIVE**\n"
         f"{BR}"
@@ -72,7 +71,10 @@ async def list_users(client, message):
     cursor = auth_col.find({})
     users = await cursor.to_list(length=100)
     REPLY = f"{BR}\n👥 **AUTHORIZED LIST**\n{BR}\n"
-    REPLY += "\n".join([f"• `{u['user_id']}`" for u in users]) if users else "EMPTY"
+    if users:
+        REPLY += "\n".join([f"• `{u['user_id']}`" for u in users])
+    else:
+        REPLY += "EMPTY DATABASE"
     await message.reply(f"{REPLY}\n{BR}")
 
 if __name__ == "__main__":
