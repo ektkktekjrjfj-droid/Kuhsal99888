@@ -1,3 +1,5 @@
 pyrogram
 tgcrypto
 selenium
+motor
+dnspython
