@@ -2,10 +2,12 @@ import os
 import asyncio
 import logging
 from pyrogram import Client, filters
+from pyrogram.types import BotCommand
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# LOGGING
+# LOGGING SETUP
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- [ CONFIGURATION ] ---
 API_ID = 21552435
@@ -15,9 +17,14 @@ OWNER_ID = 6632236983
 
 # MONGODB CONNECTION
 MONGO_URL = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-db_client = AsyncIOMotorClient(MONGO_URL)
-db = db_client["AHMEDX_DB"]
-auth_col = db["AUTH_USERS"] 
+
+try:
+    db_client = AsyncIOMotorClient(MONGO_URL)
+    db = db_client["AHMEDX_DB"]
+    auth_col = db["AUTH_USERS"]
+    logger.info("✅ MONGODB CONNECTED SUCCESSFULLY")
+except Exception as e:
+    logger.error(f"❌ MONGODB CONNECTION ERROR: {e}")
 
 app = Client("AHMEDX_FINAL_FIX", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -48,7 +55,10 @@ async def start(client, message):
         f"✨ **PREMIUM SETUP X ACTIVE**\n"
         f"{BR}"
     )
-    await message.reply_photo("https://telegra.ph/file/2e8790380c5e732381284.jpg", caption=CAPTION)
+    try:
+        await message.reply_photo("https://telegra.ph/file/2e8790380c5e732381284.jpg", caption=CAPTION)
+    except:
+        await message.reply_text(CAPTION)
 
 @app.on_message(filters.command("add") & filters.user(OWNER_ID))
 async def add_user(client, message):
@@ -78,4 +88,5 @@ async def list_users(client, message):
     await message.reply(f"{REPLY}\n{BR}")
 
 if __name__ == "__main__":
+    print("🚀 BOT IS STARTING...")
     app.run()
