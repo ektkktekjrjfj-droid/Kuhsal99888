@@ -5,18 +5,27 @@ from flask import Flask
 from threading import Thread
 from pyrogram import Client, filters
 
-# --- [ RENDER WEB-SURVIVAL ENGINE ] ---
-# Ye part Render ko "Status 1" dene se rokega
+# --- [ LOGGING ] ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("AhmedX-AutoFix")
+
+# --- [ INTERNAL PORT CONFIGURATION ] ---
+# Yahan humne PORT ko direct 8080 par lock kar diya hai
+PORT = 8080
+
 web = Flask('')
 
 @web.route('/')
 def home():
-    return "AHMED X STOREZ IS ONLINE 🚀"
+    return "AHMED X STOREZ: SELF-HEALING SYSTEM ACTIVE 🚀"
 
 def run():
-    # Render default port 10000 use karta hai
-    port = int(os.environ.get("PORT", 8080))
-    web.run(host='0.0.0.0', port=port)
+    # Render ya local host, dono ke liye port fixed hai
+    try:
+        logger.info(f"📡 STARTING INTERNAL WEB SERVER ON PORT: {PORT}")
+        web.run(host='0.0.0.0', port=PORT)
+    except Exception as e:
+        logger.error(f"❌ WEB SERVER ERROR: {e}")
 
 def keep_alive():
     t = Thread(target=run)
@@ -24,9 +33,6 @@ def keep_alive():
     t.start()
 
 # --- [ BOT CONFIGURATION ] ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AhmedX")
-
 API_ID = 21552435
 API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
 BOT_TOKEN = "IDHAR_NAYA_TOKEN_DALO" # <--- APNA NAYA TOKEN YAHA PASTE KARO
@@ -36,76 +42,76 @@ OWNER_ID = 6632236983
 AUTHORIZED_USERS = {OWNER_ID}
 TOTAL_USERS = set()
 
-app = Client("AhmedX_Boss", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("AhmedX_SelfFix", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ UI TEXTURE ] ---
 BR = "━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# --- [ FUNCTIONS ] ---
+# --- [ COMMANDS ] ---
 
 @app.on_message(filters.command("start"))
 async def start(client, message):
-    uid = message.from_user.id
-    TOTAL_USERS.add(uid)
-    
-    is_auth = uid in AUTHORIZED_USERS
-    STATUS = "✅ ⚡ AUTHORIZED ⚡" if is_auth else "❌ ⚡ ACCESS DENIED ⚡"
-    
-    CAPTION = (
-        f"{BR}\n"
-        f"🔥 **WELCOME TO AHMED X STOREZ**\n"
-        f"{BR}\n"
-        f"👤 **USER:** {message.from_user.first_name.upper()}\n"
-        f"🆔 **ID:** `{uid}`\n"
-        f"🛡 **STATUS:** {STATUS}\n"
-        f"🌐 **ENGINE:** HYBRID WEB-BOT V5\n"
-        f"{BR}\n"
-        f"🛠 **PREMIUM FUNCTIONS:**\n"
-        f"• `/buy` - STORE INVENTORY\n"
-        f"• `/broadcast` - OWNER ONLY\n"
-        f"• `/stats` - SYSTEM LOAD\n"
-        f"{BR}"
-    )
     try:
-        await message.reply_photo("https://telegra.ph/file/2e8790380c5e732381284.jpg", caption=CAPTION)
-    except:
+        uid = message.from_user.id
+        TOTAL_USERS.add(uid)
+        is_auth = uid in AUTHORIZED_USERS
+        STATUS = "✅ ⚡ AUTHORIZED ⚡" if is_auth else "❌ ⚡ ACCESS DENIED ⚡"
+        
+        CAPTION = (
+            f"{BR}\n"
+            f"🔥 **WELCOME TO AHMED X STOREZ**\n"
+            f"{BR}\n"
+            f"👤 **USER:** {message.from_user.first_name.upper()}\n"
+            f"🆔 **ID:** `{uid}`\n"
+            f"🛡 **STATUS:** {STATUS}\n"
+            f"🌐 **ENGINE:** INTERNAL PORT FIX V8\n"
+            f"{BR}\n"
+            f"🛠 **COMMANDS:** /buy, /stats, /help\n"
+            f"✨ **AUTO-RESTART: ACTIVE**\n"
+            f"{BR}"
+        )
         await message.reply_text(CAPTION)
+    except Exception as e:
+        logger.error(f"Error in start: {e}")
 
 @app.on_message(filters.command("buy"))
-async def buy_menu(client, message):
-    await message.reply(f"{BR}\n📦 **AHMED X STOREZ STOCK**\n{BR}\n1. **FB INDO FIX** - DM @OWNER\n2. **PREMIUM SESSION** - ₹499\n3. **CLONE BOT** - ₹999\n{BR}")
+async def buy(client, message):
+    await message.reply(f"{BR}\n📦 **STORE STOCK**\n{BR}\n1. **FB INDO FIX**\n2. **PREMIUM SESSION**\n3. **CLONE BOT**\n{BR}")
 
-# --- [ OWNER TOOLS ] ---
+# --- [ ADMIN TOOLS ] ---
 
 @app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
-async def broadcast_tool(client, message):
+async def broadcast(client, message):
     if not message.reply_to_message:
-        return await message.reply("📝 **REPLY TO A MESSAGE TO SEND BROADCAST.**")
-    
-    ex = await message.reply("🚀 **SENDING BROADCAST...**")
-    done = 0
+        return await message.reply("📝 **REPLY TO A MESSAGE.**")
     for user in TOTAL_USERS:
         try:
             await message.reply_to_message.copy(user)
-            done += 1
             await asyncio.sleep(0.1)
         except: pass
-    await ex.edit(f"✅ **BROADCAST COMPLETED! SENT TO {done} USERS.**")
-
-@app.on_message(filters.command("add") & filters.user(OWNER_ID))
-async def add_auth(client, message):
-    try:
-        uid = int(message.command[1])
-        AUTHORIZED_USERS.add(uid)
-        await message.reply(f"✅ **USER `{uid}` AUTHORIZED.**")
-    except: await message.reply("❌ **USE: /add ID**")
+    await message.reply("✅ **BROADCAST DONE.**")
 
 @app.on_message(filters.command("stats") & filters.user(OWNER_ID))
-async def show_stats(client, message):
-    await message.reply(f"{BR}\n📊 **SYSTEM STATS**\n{BR}\n👥 **TOTAL USERS:** {len(TOTAL_USERS)}\n🛡 **AUTH USERS:** {len(AUTHORIZED_USERS)}\n{BR}")
+async def stats(client, message):
+    await message.reply(f"{BR}\n📊 **STATS**\n{BR}\n👥 **USERS:** {len(TOTAL_USERS)}\n🛡 **AUTH:** {len(AUTHORIZED_USERS)}\n{BR}")
 
-# --- [ MAIN RUNNER ] ---
+# --- [ THE UNSTOPPABLE RUNNER ] ---
+async def start_bot():
+    while True:
+        try:
+            logger.info("🚀 STARTING AHMED X ENGINE...")
+            await app.start()
+            logger.info("✅ BOT IS LIVE!")
+            while True:
+                await asyncio.sleep(1000)
+        except Exception as e:
+            logger.error(f"⚠️ CRASH DETECTED: {e}. AUTO-RESTARTING...")
+            try: await app.stop()
+            except: pass
+            await asyncio.sleep(5)
+            continue
+
 if __name__ == "__main__":
-    logger.info("🚀 STARTING HYBRID ENGINE...")
-    keep_alive() # Starts the Web Server
-    app.run()    # Starts the Bot
+    keep_alive() # Internal Port 8080 Fix
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(start_bot())
