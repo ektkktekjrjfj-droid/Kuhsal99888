@@ -4,83 +4,147 @@ import logging
 from flask import Flask
 from threading import Thread
 from pyrogram import Client, filters, idle
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
-# --- [ LOGGING ] ---
+# --- [ LOGGING & CONFIG ] ---
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("AhmedX-Final")
+logger = logging.getLogger("AHMED_X_PRO")
 
-# --- [ WEB SERVER FOR RENDER ] ---
-# Ye Render ko Status 1 dene se rokta hai
-web = Flask('')
-
-@web.route('/')
-def home():
-    return "AHMED X STOREZ: SYSTEM ONLINE 🚀"
-
-def run_web():
-    # Port 8080 internal fix
-    try:
-        web.run(host='0.0.0.0', port=8080)
-    except Exception as e:
-        logger.error(f"Web Server Error: {e}")
-
-# --- [ CONFIGURATION ] ---
+# CONFIGURATION
 API_ID = 21552435
 API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
-BOT_TOKEN = "IDHAR_NAYA_TOKEN_DALO" # <--- APNA NAYA TOKEN PASTE KARO
+BOT_TOKEN = "IDHAR_NAYA_TOKEN_DALO" # <--- APNA TOKEN DALO
 OWNER_ID = 6632236983 
 
-# In-Memory DB
-AUTHORIZED_USERS = {OWNER_ID}
-TOTAL_USERS = set()
+# DATABASE (In-Memory for Render Stability)
+AUTH_USERS = {OWNER_ID}
+DATABASE = {"users": set(), "banned": set()}
 
-app = Client("AhmedX_Final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+# --- [ RENDER ALIVE ENGINE ] ---
+web = Flask('')
+@web.route('/')
+def home(): return "AHMED X PRO ENGINE IS RUNNING 🚀"
+
+def run_web():
+    web.run(host='0.0.0.0', port=8080)
 
 # --- [ UI TEXTURE ] ---
 BR = "━━━━━━━━━━━━━━━━━━━━━━━━"
 
+app = Client("AhmedX_Full", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# --- [ DECORATORS / MIDDLEWARE ] ---
+def is_owner(func):
+    async def wrapper(client, message):
+        if message.from_user.id != OWNER_ID:
+            return await message.reply("⚠️ **ACCESS DENIED: OWNER ONLY COMMAND.**")
+        return await func(client, message)
+    return wrapper
+
 # --- [ COMMANDS ] ---
 
 @app.on_message(filters.command("start"))
-async def start(client, message):
+async def start_handler(client, message):
     uid = message.from_user.id
-    TOTAL_USERS.add(uid)
-    is_auth = uid in AUTHORIZED_USERS
-    STATUS = "✅ ⚡ AUTHORIZED ⚡" if is_auth else "❌ ⚡ ACCESS DENIED ⚡"
+    DATABASE["users"].add(uid)
     
-    CAPTION = (
+    if uid in DATABASE["banned"]:
+        return await message.reply("🚫 **YOU ARE BANNED FROM THIS STORE.**")
+
+    welcome_text = (
         f"{BR}\n"
         f"🔥 **WELCOME TO AHMED X STOREZ**\n"
         f"{BR}\n"
         f"👤 **USER:** {message.from_user.first_name.upper()}\n"
         f"🆔 **ID:** `{uid}`\n"
-        f"🛡 **STATUS:** {STATUS}\n"
-        f"🌐 **ENGINE:** STABLE IDLE V9\n"
+        f"🛡 **STATUS:** {'PREMIUM' if uid in AUTH_USERS else 'MEMBER'}\n"
+        f"🌐 **VER:** 2026.X-PRO\n"
         f"{BR}\n"
-        f"🛠 **COMMANDS:** /buy, /stats, /help\n"
+        f"USE THE BUTTONS BELOW TO NAVIGATE:\n"
         f"{BR}"
     )
-    await message.reply_text(CAPTION)
+    
+    buttons = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📦 PRODUCTS", callback_data="prod"), 
+         InlineKeyboardButton("🛡 SUPPORT", callback_data="supp")],
+        [InlineKeyboardButton("📊 SYSTEM STATS", callback_data="stats")]
+    ])
+    
+    await message.reply_text(welcome_text, reply_markup=buttons)
 
-@app.on_message(filters.command("stats") & filters.user(OWNER_ID))
-async def stats(client, message):
-    await message.reply(f"👥 TOTAL USERS: {len(TOTAL_USERS)}")
+@app.on_message(filters.command("broadcast") & filters.user(OWNER_ID))
+async def broadcast_handler(client, message):
+    if not message.reply_to_message:
+        return await message.reply("📝 **REPLY TO A MESSAGE TO BROADCAST.**")
+    
+    sts = await message.reply("🚀 **BROADCASTING IN PROGRESS...**")
+    done, fail = 0, 0
+    
+    for user in list(DATABASE["users"]):
+        try:
+            await message.reply_to_message.copy(user)
+            done += 1
+            await asyncio.sleep(0.1)
+        except:
+            fail += 1
+            
+    await sts.edit(f"✅ **BROADCAST COMPLETED**\n{BR}\n⚡ **SENT:** {done}\n❌ **FAILED:** {fail}")
 
-# --- [ MAIN RUNNER ] ---
+@app.on_message(filters.command("add") & filters.user(OWNER_ID))
+async def add_user(client, message):
+    try:
+        target = int(message.command[1])
+        AUTH_USERS.add(target)
+        await message.reply(f"✅ **USER `{target}` HAS BEEN ADDED TO PREMIUM.**")
+    except:
+        await message.reply("❌ **ERROR: PROVIDE VALID USER ID.**")
 
+@app.on_message(filters.command("ban") & filters.user(OWNER_ID))
+async def ban_user(client, message):
+    try:
+        target = int(message.command[1])
+        DATABASE["banned"].add(target)
+        await message.reply(f"🚫 **USER `{target}` HAS BEEN BANNED.**")
+    except:
+        await message.reply("❌ **ERROR: PROVIDE VALID USER ID.**")
+
+@app.on_message(filters.command("stats"))
+async def stats_handler(client, message):
+    text = (
+        f"{BR}\n"
+        f"📊 **AHMED X STOREZ STATS**\n"
+        f"{BR}\n"
+        f"👥 **TOTAL USERS:** {len(DATABASE['users'])}\n"
+        f"🛡 **AUTH USERS:** {len(AUTH_USERS)}\n"
+        f"🚫 **BANNED:** {len(DATABASE['banned'])}\n"
+        f"🛰 **SERVER:** RENDER-ASIA-1\n"
+        f"{BR}"
+    )
+    await message.reply_text(text)
+
+# --- [ CALLBACK QUERY HANDLER ] ---
+@app.on_callback_query()
+async def cb_handler(client, query):
+    if query.data == "prod":
+        await query.message.edit(f"{BR}\n📦 **AVAILABLE PRODUCTS**\n{BR}\n1. FB ID CLONE - ₹499\n2. TELEGRAM BOT CLONE - ₹999\n3. PREMIUM SESSIONS - ₹299\n{BR}\n**CONTACT @OWNER TO BUY**")
+    elif query.data == "supp":
+        await query.message.edit(f"{BR}\n🛡 **SUPPORT CENTER**\n{BR}\nOWNER: @AHMED_X\nTIMING: 24/7\n{BR}")
+    elif query.data == "stats":
+        await query.answer("FETCHING LIVE DATA...", show_alert=True)
+
+# --- [ BOOT ENGINE ] ---
 async def main():
-    # 1. Start Web Server in background
     Thread(target=run_web, daemon=True).start()
-    
-    # 2. Start Bot
-    logger.info("🚀 STARTING AHMED X ENGINE...")
     await app.start()
-    logger.info("✅ BOT IS LIVE ON RENDER!")
-    
-    # 3. Keep bot running (IDLE)
+    # Set Commands for Bot
+    await app.set_bot_commands([
+        BotCommand("start", "RESET THE ENGINE"),
+        BotCommand("buy", "VIEW STORE"),
+        BotCommand("stats", "CHECK LOAD"),
+        BotCommand("broadcast", "OWNER ONLY")
+    ])
+    logger.info("🔥 AHMED X PRO IS LIVE!")
     await idle()
-    
-    # 4. Stop if idle breaks
     await app.stop()
 
 if __name__ == "__main__":
