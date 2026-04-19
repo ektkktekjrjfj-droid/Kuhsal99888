@@ -1,4 +1,5 @@
 import asyncio
+import os
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -8,7 +9,6 @@ from pyrogram import Client, filters
 # --- [ CONFIG ] ---
 API_ID = 21552435
 API_HASH = "5b108bd2fdd31c0c34bc65f24a5216a0"
-# Aapka Naya Token
 BOT_TOKEN = "8464390807:AAGVxObZ60Se34Kjo3nX34I0iDa8VBAcsRY"
 
 app = Client("AhmedX_AutoFix", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
@@ -17,18 +17,23 @@ user_data = {}
 
 async def automation_logic(client, message, user, pwd):
     options = Options()
-    options.add_argument("--headless") # Screen nahi dikhegi
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.binary_location = "/usr/bin/chromium"
+    options.add_argument("--disable-gpu")
     
-    # 🚨 PATH FIX: Seedha system driver ko point kar raha hai
-    service = Service("/usr/bin/chromedriver")
+    # 🔥 RENDER CLOUD PATH FIX:
+    # Render par Chrome yahan hota hai:
+    options.binary_location = "/usr/bin/google-chrome"
     
+    # Render par Driver system path mein hota hai, isliye hum isse direct call karenge
+    service = Service() 
+    
+    driver = None
     try:
         driver = webdriver.Chrome(service=service, options=options)
         
-        # Step 1: Login Page
+        # Step 1: Login
         driver.get("https://business.facebook.com/business/loginpage/")
         await asyncio.sleep(5)
         
@@ -37,21 +42,22 @@ async def automation_logic(client, message, user, pwd):
         driver.find_element(By.NAME, "login").click()
         await asyncio.sleep(10)
         
-        # Step 2: 2FA (Twist Verification) Check
+        # Step 2: 2FA Check
         if "checkpoint" in driver.current_url:
-            await message.reply("🔐 **Bhai Code (OTP) Maang Raha Hai!**\nJaldi se 6-digit code yahan likho:")
+            await message.reply("🔐 **Bhai Code (OTP) Maang Raha Hai!**\nJaldi se code yahan likho:")
             user_data[message.from_user.id] = None
             
-            for _ in range(60): # 1 minute wait
-                if user_data[message.from_user.id]:
+            for _ in range(60):
+                if user_data.get(message.from_user.id):
                     otp = user_data[message.from_user.id]
                     driver.find_element(By.ID, "approvals_code").send_keys(otp)
                     driver.find_element(By.ID, "checkpointSubmitButton").click()
                     await asyncio.sleep(5)
+                    del user_data[message.from_user.id]
                     break
                 await asyncio.sleep(1)
         
-        # Step 3: Final Link Hit (Indo Fix)
+        # Step 3: Indo Fix Hit
         driver.get("https://business.facebook.com/?nav_ref=biz_unified_f3_login_page_to_mbs")
         await asyncio.sleep(5)
         
@@ -59,6 +65,8 @@ async def automation_logic(client, message, user, pwd):
         return "✅ **Ahmed X Fixer:** Account successfully link ho gaya!"
 
     except Exception as e:
+        if driver:
+            driver.quit()
         return f"❌ **Error:** {str(e)}"
 
 @app.on_message(filters.command("indofix"))
@@ -77,5 +85,5 @@ async def catch_otp(client, message):
         user_data[message.from_user.id] = message.text
         await message.reply("📥 **OTP mil gaya!** Aage badh raha hoon...")
 
-print("🔥 FULL AUTO-FIXER RUNNING...")
+print("🔥 AHMED X CLOUD BOT IS RUNNING...")
 app.run()
