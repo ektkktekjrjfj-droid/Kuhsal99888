@@ -1,37 +1,52 @@
 import os
 import asyncio
 import logging
+import sys
 from flask import Flask
 from threading import Thread
 from pyrogram import Client, filters, idle
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, BotCommand
 
-# --- [ PRO LOGGING ] ---
-logging.basicConfig(level=logging.INFO)
+# --- [ LOGGING SETUP ] ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger("AHMED_X_ULTRA")
 
-# --- [ CONFIGURATION ] ---
+# --- [ ENVIRONMENT DATA ] ---
+# Agar environment variable nahi milega toh default value uthayega
 API_ID = int(os.environ.get("API_ID", "21552435"))
 API_HASH = os.environ.get("API_HASH", "5b108bd2fdd31c0c34bc65f24a5216a0")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8635335052:AAHNPs7bSlwc3a_dGkPGuMhneWj40rD3gmw")
 OWNER_ID = int(os.environ.get("OWNER_ID", "6632236983"))
 
-# --- [ RENDER WEB SERVER (BYPASS STATUS 1) ] ---
+# --- [ RENDER WEB SERVER (STATUS 1 BYPASS) ] ---
 web = Flask('')
 
 @web.route('/')
 def home():
-    return "Ahmed X Engine: Running ✅"
+    return "<h1>AHMED X ENGINE IS LIVE ✅</h1>"
 
 def run_web():
+    # Render hamesha PORT variable deta hai, hum usey hi use karenge
     port = int(os.environ.get("PORT", 8080))
-    web.run(host='0.0.0.0', port=port)
+    try:
+        web.run(host='0.0.0.0', port=port)
+    except Exception as e:
+        logger.error(f"Flask Error: {e}")
 
-# --- [ STORAGE ] ---
+# --- [ BOT INITIALIZATION ] ---
+app = Client(
+    "AhmedX_PRO",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
+
 TOTAL_USERS = set()
 BR = "━━━━━━━━━━━━━━━━━━━━━━━━"
-
-app = Client("AhmedX_PRO", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # --- [ COMMANDS ] ---
 
@@ -42,9 +57,10 @@ async def start(client, message):
     
     welcome_text = (
         f"{BR}\n"
-        f"🔥 **WELCOME TO AHMED X STOREZ**\n"
+        f"🔥 **AHMED X STOREZ - ACTIVE**\n"
         f"{BR}\n"
         f"👤 **USER:** {message.from_user.first_name.upper()}\n"
+        f"🆔 **ID:** `{uid}`\n"
         f"🛡 **STATUS:** {'OWNER' if uid == OWNER_ID else 'MEMBER'}\n"
         f"{BR}\n"
         f"SELECT AN OPTION:\n"
@@ -81,31 +97,31 @@ async def cb(client, query):
     elif query.data == "stats":
         await query.answer(f"Users: {len(TOTAL_USERS)}", show_alert=True)
 
-# --- [ THE ULTIMATE RUNNER ] ---
+# --- [ MAIN ENGINE ] ---
 
-async def start_services():
-    # 1. Start Web Server
+async def start_bot():
+    # 1. Background mein Web server chalao Render ko khush karne ke liye
     Thread(target=run_web, daemon=True).start()
     
-    # 2. Start Bot
-    logger.info("🚀 Starting Ahmed X...")
-    await app.start()
-    
-    # 3. Set Menu
-    await app.set_bot_commands([
-        BotCommand("start", "Restart Bot"),
-        BotCommand("broadcast", "Send Broadcast")
-    ])
-    
-    logger.info("✅ Bot is Live!")
-    await idle()
-    await app.stop()
+    # 2. Bot ko start karo
+    try:
+        logger.info("🚀 Starting Ahmed X Engine...")
+        await app.start()
+        
+        # 3. Commands set karo
+        await app.set_bot_commands([
+            BotCommand("start", "Restart Bot"),
+            BotCommand("broadcast", "Owner Only")
+        ])
+        
+        logger.info("✅ Bot is Live on Render!")
+        await idle()
+    except Exception as e:
+        logger.error(f"❌ Critical Error: {e}")
+    finally:
+        await app.stop()
 
 if __name__ == "__main__":
+    # Naya event loop use karenge Render ke liye
     loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(start_services())
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    except Exception as e:
-        logger.error(f"❌ CRITICAL ERROR: {e}")
+    loop.run_until_complete(start_bot())
