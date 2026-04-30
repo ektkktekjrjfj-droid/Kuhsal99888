@@ -2,188 +2,165 @@ import telebot
 import requests
 import time
 import threading
+import os
 import random
 import re
-import dns.resolver
+import gc
 from pymongo import MongoClient
+from flask import Flask
 from telebot import types
-from concurrent.futures import ThreadPoolExecutor
 
-# --- DNS BYPASS ---
-try:
-    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
-    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
-except: pass
+# --- RENDER WEB FIX (Ye Render ko crash hone se rokta hai) ---
+app = Flask(__name__)
+@app.route('/health')
+def health_check():
+    return "Bot is Running", 200
+
+def run_flask():
+    # Render automatically sets PORT environment variable
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
 
 # --- CONFIG ---
 API_TOKEN = '8300468544:AAF9Q6eC3jBgMzCkJXPebKW-R6d-74BWZO0'
+ADMIN_ID = 6932403164
 MONGO_URI = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML")
+session = requests.Session() # Memory bachaane ke liye session use kiya
 
-# --- MONGODB ---
-users_col = None
-history_col = None
-try:
-    client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=5000)
-    db = client['KushalPremiumStore']
-    users_col = db['users']
-    history_col = db['history']
-    client.admin.command('ping')
-except: pass
+# --- DATABASE ---
+client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
+db = client['KushalPremiumStore']
+users_col = db['users']
+history_col = db['history']
 
-# --- SPEED HELPERS ---
+# --- OTP EXTRACTOR ---
 def get_clean_otp(text):
-    matches = re.findall(r'\b\d{4,8}\b', text)
-    return matches[0] if matches else "NOT FOUND"
+    match = re.search(r'\b\d{4,8}\b', text)
+    return match.group(0) if match else "NOT FOUND"
 
-def detect_platform(text):
-    text = text.lower()
-    if "instagram" in text: return "Instagram", "https://instagram.com"
-    if "facebook" in text: return "Facebook", "https://facebook.com"
-    return "Web Service", "https://google.com"
-
-# --- ⚡ SUPER FAST ENGINE (0.5s Check) ---
-def check_inbox(uid, email, token, last_id):
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
-        # Timeout kam kiya taaki jaldi check ho
-        r = requests.get("https://api.mail.tm/messages", headers=headers, timeout=3).json()
-        msgs = r.get('hydra:member', [])
-        
-        if msgs:
-            m = msgs[0]
-            m_id = str(m['id'])
-            if m_id != str(last_id):
-                detail = requests.get(f"https://api.mail.tm/messages/{m_id}", headers=headers).json()
-                body = detail.get('intro', '')
-                subj = detail.get('subject', '')
-                otp = get_clean_otp(body + subj)
-                plat_name, plat_url = detect_platform(body + subj)
-
-                # --- EXACT SCREENSHOT DESIGN (NO PHOTO PREVIEW) ---
-                ui = (
-                    f"📧 <b>Account:</b> <code>{email}</code>\n"
-                    f"📝 <b>Subject:</b> <i>{subj}</i>\n"
-                    f"🔗 <b>Platform:</b> <a href='{plat_url}'>{plat_name}</a>\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📩 <b>Message Body:</b>\n"
-                    f"<i>{body[:120]}...</i>\n\n"
-                    f"⚡ <b>OTP CODE:</b> <code>{otp}</code>\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🔹 <i>Tap code to copy instantly</i>"
-                )
-                
-                # disable_web_page_preview=True se Instagram photo nahi aayegi
-                bot.send_message(uid, ui, disable_web_page_preview=True)
-                if users_col is not None:
-                    users_col.update_one({"uid": uid}, {"$set": {"last_id": m_id}})
-    except: pass
-
-def background_loop():
+# --- STABLE BACKGROUND ENGINE ---
+def background_otp_checker():
     while True:
         try:
-            if users_col is not None:
-                all_users = list(users_col.find({"token": {"$exists": True}}))
-                # Threading workers badha diye taaki delay na ho
-                with ThreadPoolExecutor(max_workers=50) as exe:
-                    for user in all_users:
-                        exe.submit(check_inbox, user['uid'], user['email'], user['token'], user.get('last_id', '0'))
-        except: pass
-        time.sleep(1) # Speed fast kar di
+            # Sirf un users ko check karo jin ke paas active token hai
+            active_users = list(users_col.find({"token": {"$exists": True}}))
+            
+            for user in active_users:
+                uid = user['uid']
+                email = user['email']
+                token = user['token']
+                last_id = user.get('last_id', '0')
 
-# --- SIDE MENU CONFIG ---
-def set_menu():
-    bot.delete_my_commands(scope=None, language_code=None)
-    bot.set_my_commands([
-        types.BotCommand("start", "🏠 Home / Refresh"),
-        types.BotCommand("generate", "📧 Generate New Mail"),
-        types.BotCommand("id", "📊 My History / Delete"),
-        types.BotCommand("reset", "🗑️ Clear All Data")
-    ])
+                headers = {"Authorization": f"Bearer {token}"}
+                try:
+                    resp = session.get("https://api.mail.tm/messages", headers=headers, timeout=5).json()
+                    msgs = resp.get('hydra:member', [])
+                    
+                    if msgs:
+                        m_id = msgs[0]['id']
+                        if str(m_id) != str(last_id):
+                            # Naya message aaya hai
+                            detail = session.get(f"https://api.mail.tm/messages/{m_id}", headers=headers, timeout=5).json()
+                            full_text = f"{detail.get('intro', '')} {detail.get('subject', '')}"
+                            otp = get_clean_otp(full_text)
+                            
+                            design = (
+                                f"📩 <b>New Mail Received!</b>\n"
+                                f"━━━━━━━━━━━━━━━━━━\n"
+                                f"📧 <b>To:</b> <code>{email}</code>\n"
+                                f"📝 <b>Sub:</b> {detail.get('subject')}\n"
+                                f"━━━━━━━━━━━━━━━━━━\n"
+                                f"⚡ <b>OTP:</b> <code>{otp}</code>\n"
+                                f"━━━━━━━━━━━━━━━━━━"
+                            )
+                            bot.send_message(uid, design)
+                            users_col.update_one({"uid": uid}, {"$set": {"last_id": m_id}})
+                except:
+                    continue
+            
+            gc.collect() # Har loop ke baad memory saaf karo
+            time.sleep(4) # CPU usage kam rakhne ke liye 4 sec sleep
+            
+        except Exception as e:
+            print(f"Loop Error: {e}")
+            time.sleep(10)
 
-# --- COMMANDS ---
-
+# --- START COMMAND ---
 @bot.message_handler(commands=['start'])
-def start(m):
+def welcome(m):
     uid = m.chat.id
     name = m.from_user.first_name
-    set_menu()
-
-    photo_id = ""
-    try:
-        p = bot.get_user_profile_photos(uid)
-        if p.total_count > 0: photo_id = p.photos[0][-1].file_id
-    except: pass
-
-    mention = f'<b><a href="tg://user?id={uid}">{name}</a></b>'
-    welcome_ui = (
-        f"👋 <b>Welcome, {mention}!</b>\n\n"
-        f"🚀 <b>KUSHAL PREMIUM STORE</b>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
-        f"📊 <b>Status:</b> <code>Cloud Active</code>\n"
-        f"━━━━━━━━━━━━━━━━━━\n"
-        f"📩 <i>Click /generate for instant mail.</i>"
-    )
-    if photo_id: bot.send_photo(uid, photo_id, caption=welcome_ui)
-    else: bot.send_message(uid, welcome_ui)
-
-@bot.message_handler(commands=['generate'])
-def generate(m):
-    uid = m.chat.id
-    # Fast animation
-    status = bot.send_message(uid, "⚡ <b>Generating Instant Mail...</b>")
+    mention = f"<a href='tg://user?id={uid}'>{name}</a>"
+    
+    # User Photo fetch logic
+    welcome_msg = f"👋 <b>Oye {mention}!</b>\n\nWelcome to <b>Kushal Premium Store</b>.\nID: <code>{uid}</code>\n\nBhai, niche wala button dabao naya email lene ke liye."
+    
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("📧 Generate Email", callback_data="gen"))
     
     try:
-        # Optimized Domain Fetch
-        doms = requests.get("https://api.mail.tm/domains").json()['hydra:member']
-        target = doms[0]['domain'] # Pehla domain uthaya speed ke liye
-        
-        email = f"pro{random.randint(10,99)}x{random.randint(100,999)}@{target}"
-        pwd = f"kushal{random.randint(10,99)}"
-        
-        # Async-like requests
-        requests.post("https://api.mail.tm/accounts", json={"address": email, "password": pwd}, timeout=5)
-        tk = requests.post("https://api.mail.tm/token", json={"address": email, "password": pwd}, timeout=5).json()
-        token = tk.get('token')
+        photos = bot.get_user_profile_photos(uid)
+        if photos.total_count > 0:
+            bot.send_photo(uid, photos.photos[0][-1].file_id, caption=welcome_msg, reply_markup=markup)
+        else:
+            bot.send_message(uid, welcome_msg, reply_markup=markup)
+    except:
+        bot.send_message(uid, welcome_msg, reply_markup=markup)
 
+# --- GENERATE EMAIL ---
+@bot.callback_query_handler(func=lambda call: call.data == "gen")
+def gen_email(call):
+    uid = call.message.chat.id
+    bot.answer_callback_query(call.id, "♻️ Generating...")
+    
+    try:
+        dom = session.get("https://api.mail.tm/domains").json()['hydra:member'][0]['domain']
+        email = f"kushal{random.randint(100,999)}@{dom}"
+        pwd = "password123"
+        
+        session.post("https://api.mail.tm/accounts", json={"address": email, "password": pwd})
+        token_data = session.post("https://api.mail.tm/token", json={"address": email, "password": pwd}).json()
+        token = token_data.get('token')
+        
         if token:
-            if users_col is not None:
-                users_col.update_one({"uid": uid}, {"$set": {"email": email, "token": token, "last_id": "0"}}, upsert=True)
-                history_col.insert_one({"uid": uid, "email": email, "id_code": str(random.randint(100000, 999999))})
-            
-            bot.edit_message_text(f"✅ <b>Generated Successfully!</b>\n\n📧 <code>{email}</code>", uid, status.message_id)
-        else: bot.edit_message_text("❌ Error. Try again.", uid, status.message_id)
-    except: bot.edit_message_text("❌ Server Busy.", uid, status.message_id)
+            users_col.update_one({"uid": uid}, {"$set": {"email": email, "token": token, "last_id": "0"}}, upsert=True)
+            history_col.insert_one({"uid": uid, "email": email, "date": time.strftime("%Y-%m-%d")})
+            bot.send_message(uid, f"✅ <b>Email Taiyar Hai:</b>\n<code>{email}</code>\n\n<i>Waiting for OTP... (Keep this chat open)</i>")
+    except:
+        bot.send_message(uid, "❌ Server Down. Try again later.")
 
-@bot.message_handler(commands=['id'])
-def show_id(m):
-    uid = m.chat.id
-    if history_col is None: return
-    mails = list(history_col.find({"uid": uid}).limit(20))
-    
-    if not mails:
-        bot.send_message(uid, "📊 <b>History Khali Hai!</b>")
-        return
+# --- BROADCAST SYSTEM ---
+@bot.message_handler(commands=['broadcast'])
+def bc_handler(m):
+    if m.chat.id == ADMIN_ID:
+        msg = bot.reply_to(m, "📢 Send me the message (Text or Photo with Caption)")
+        bot.register_next_step_handler(msg, perform_bc)
 
-    res = "📊 <b>Your History:</b>\n━━━━━━━━━━━━━━━━━━\n"
-    for i, d in enumerate(mails, 1):
-        code = d.get('id_code', '000')
-        res += f"{i}. <code>{d['email']}</code> | /delete_{code}\n"
-    
-    res += "━━━━━━━━━━━━━━━━━━"
-    bot.send_message(uid, res)
+def perform_bc(m):
+    users = list(users_col.find({}, {"uid": 1}))
+    success = 0
+    for u in users:
+        try:
+            if m.content_type == 'photo':
+                bot.send_photo(u['uid'], m.photo[-1].file_id, caption=m.caption)
+            else:
+                bot.send_message(u['uid'], m.text)
+            success += 1
+            time.sleep(0.1) # Flood wait se bachne ke liye
+        except:
+            pass
+    bot.send_message(ADMIN_ID, f"✅ Broadcast sent to {success} users.")
 
-@bot.message_handler(regexp=r'/delete_(\d+)')
-def delete_mail(m):
-    code = m.text.split('_')[1]
-    if history_col is not None:
-        history_col.delete_one({"uid": m.chat.id, "id_code": code})
-        bot.send_message(m.chat.id, "🗑️ <b>Deleted.</b>")
-
+# --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    set_menu()
-    threading.Thread(target=background_loop, daemon=True).start()
-    print(">>> Fast System Online")
-    bot.polling(none_stop=True)
+    # 1. Flask for Health Check (Render mandatory)
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # 2. OTP Checker Loop
+    threading.Thread(target=background_otp_checker, daemon=True).start()
+    
+    # 3. Start Bot Polling
+    print(">>> Bot is starting...")
+    bot.polling(none_stop=True, timeout=60, long_polling_timeout=60)
