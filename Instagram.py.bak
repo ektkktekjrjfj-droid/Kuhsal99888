@@ -4,40 +4,50 @@ import time
 import threading
 import random
 import re
+import os
 import dns.resolver
 from pymongo import MongoClient
-from telebot import types
+from flask import Flask
 from concurrent.futures import ThreadPoolExecutor
 
-# --- STEP 1: FORCE DNS RESOLUTION (Anti-Resolv.conf Fix) ---
+# --- DUMMY SERVER FOR RENDER (CRITICAL) ---
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Bot is Active and Running!", 200
+
+def run_flask_server():
+    # Render takes the PORT from environment variables automatically
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# --- DNS BYPASS ---
 try:
     dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
-    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1', '208.67.222.222']
-except Exception as e:
-    print(f"DNS Resolver Setup Error: {e}")
+    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
+except: pass
 
 # --- CONFIG ---
 API_TOKEN = '8300468544:AAF9Q6eC3jBgMzCkJXPebKW-R6d-74BWZO0'
-# Cloud connection string
 MONGO_URI = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML")
 
-# --- MONGODB SETUP ---
+# --- MONGODB ---
 users_col = None
 history_col = None
 try:
-    # Adding timeout and forcing standard connection
-    client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=20000)
+    client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=10000)
     db = client['KushalPremiumStore']
     users_col = db['users']
     history_col = db['history']
     client.admin.command('ping')
-    print("✅ MongoDB Cloud Connected Successfully!")
+    print("✅ MongoDB Connected")
 except Exception as e:
-    print(f"❌ Connection Error: {e}")
+    print(f"❌ DB Error: {e}")
 
-# --- UTILS ---
+# --- SPEED HELPERS ---
 def get_clean_otp(text):
     matches = re.findall(r'\b\d{4,8}\b', text)
     return matches[0] if matches else "NOT FOUND"
@@ -48,11 +58,11 @@ def detect_platform(text):
     if "facebook" in text: return "Facebook", "https://facebook.com"
     return "Web Service", "https://google.com"
 
-# --- INBOX ENGINE ---
+# --- FAST ENGINE ---
 def check_inbox(uid, email, token, last_id):
     try:
         headers = {"Authorization": f"Bearer {token}"}
-        r = requests.get("https://api.mail.tm/messages", headers=headers, timeout=8).json()
+        r = requests.get("https://api.mail.tm/messages", headers=headers, timeout=5).json()
         msgs = r.get('hydra:member', [])
         
         if msgs:
@@ -66,13 +76,13 @@ def check_inbox(uid, email, token, last_id):
                 plat_name, plat_url = detect_platform(body + subj)
 
                 ui = (
-                    f"✨ <b>NEW MESSAGE RECEIVED</b>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
-                    f"📧 <b>Acc:</b> <code>{email}</code>\n"
-                    f"🔗 <b>From:</b> <a href='{plat_url}'>{plat_name}</a>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"📧 <b>Account:</b> <code>{email}</code>\n"
+                    f"📝 <b>Subject:</b> <i>{subj}</i>\n"
+                    f"🔗 <b>Platform:</b> <a href='{plat_url}'>{plat_name}</a>\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
                     f"⚡ <b>OTP CODE:</b> <code>{otp}</code>\n"
-                    f"━━━━━━━━━━━━━━━━━━━━━"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🔹 <i>Tap code to copy instantly</i>"
                 )
                 bot.send_message(uid, ui, disable_web_page_preview=True)
                 if users_col is not None:
@@ -83,108 +93,50 @@ def background_loop():
     while True:
         try:
             if users_col is not None:
-                all_active = list(users_col.find({"token": {"$exists": True}}))
-                with ThreadPoolExecutor(max_workers=25) as exe:
-                    for user in all_active:
+                all_users = list(users_col.find({"token": {"$exists": True}}))
+                with ThreadPoolExecutor(max_workers=30) as exe:
+                    for user in all_users:
                         exe.submit(check_inbox, user['uid'], user['email'], user['token'], user.get('last_id', '0'))
         except: pass
-        time.sleep(2)
+        time.sleep(1.5)
 
-# --- COMMANDS ---
-
-@bot.message_handler(commands=['start'])
-def start(m):
-    uid = m.chat.id
-    name = m.from_user.first_name
-    
-    # Side Menu Force Update
+# --- MENU & START ---
+def set_menu():
     bot.set_my_commands([
-        types.BotCommand("start", "🏠 Refresh Home"),
-        types.BotCommand("generate", "📧 New Mail"),
-        types.BotCommand("id", "📊 History & Delete"),
-        types.BotCommand("reset", "🗑️ Delete All Data")
+        telebot.types.BotCommand("start", "🏠 Home"),
+        telebot.types.BotCommand("generate", "📧 Get Mail"),
+        telebot.types.BotCommand("id", "📊 My History"),
+        telebot.types.BotCommand("reset", "🗑️ Clear Data")
     ])
 
-    photo_id = ""
-    try:
-        p = bot.get_user_profile_photos(uid)
-        if p.total_count > 0: photo_id = p.photos[0][-1].file_id
-    except: pass
-
-    if users_col is not None:
-        users_col.update_one({"uid": uid}, {"$set": {"name": name, "last_seen": time.ctime()}}, upsert=True)
-
-    mention = f'<b><a href="tg://user?id={uid}">{name}</a></b>'
-    welcome_ui = (
-        f"👋 <b>Welcome Back, {mention}!</b>\n\n"
-        f"🚀 <b>KUSHAL PREMIUM STORE</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>Name:</b> {name}\n"
-        f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
-        f"📊 <b>Status:</b> <code>Premium Cloud</code>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━"
-    )
-    if photo_id: bot.send_photo(uid, photo_id, caption=welcome_ui)
-    else: bot.send_message(uid, welcome_ui)
+@bot.message_handler(commands=['start'])
+def welcome(m):
+    set_menu()
+    bot.reply_to(m, "🚀 <b>Kushal Premium Store LIVE!</b>\n\nUse /generate to get an email.")
 
 @bot.message_handler(commands=['generate'])
-def generate(m):
+def gen(m):
     uid = m.chat.id
     try:
         doms = requests.get("https://api.mail.tm/domains").json()['hydra:member']
-        target = random.choice([d['domain'] for d in doms if d['domain'].endswith('.com')] or [doms[0]['domain']])
-        email = f"pro{random.randint(100,999)}@{target}"
-        pwd = f"kushal_{random.randint(100,999)}"
-        
+        email = f"kushal{random.randint(100,999)}@{doms[0]['domain']}"
+        pwd = "password123"
         requests.post("https://api.mail.tm/accounts", json={"address": email, "password": pwd})
         tk = requests.post("https://api.mail.tm/token", json={"address": email, "password": pwd}).json()
         token = tk.get('token')
 
         if token and users_col is not None:
             users_col.update_one({"uid": uid}, {"$set": {"email": email, "token": token, "last_id": "0"}}, upsert=True)
-            history_col.insert_one({"uid": uid, "email": email, "time": time.ctime()})
-            bot.send_message(uid, f"✅ <b>Generated:</b>\n<code>{email}</code>")
-    except:
-        bot.reply_to(m, "❌ API Limit. Try in 30s.")
-
-@bot.message_handler(commands=['id'])
-def show_id(m):
-    uid = m.chat.id
-    if history_col is None: return
-    
-    # Fetching last 15 emails like the screenshot
-    mails = list(history_col.find({"uid": uid}).sort("_id", -1).limit(15))
-    
-    if not mails:
-        bot.send_message(uid, "📊 <b>No History Found!</b>")
-        return
-
-    res_text = "📊 <b>Your Email History:</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
-    for i, d in enumerate(mails, 1):
-        mail = d['email']
-        m_id = str(d['_id'])[-6:]
-        res_text += f"{i}. <code>{mail}</code> | /delete_{m_id}\n"
-    
-    res_text += "━━━━━━━━━━━━━━━━━━━━━"
-    bot.send_message(uid, res_text)
-
-# Regex for delete_xxxx commands
-@bot.message_handler(regexp=r'/delete_(\w+)')
-def delete_item(m):
-    uid = m.chat.id
-    code = m.text.split('_')[1]
-    if history_col is not None:
-        history_col.delete_one({"uid": uid, "_id": {"$regex": code + "$"}})
-        bot.send_message(uid, "🗑️ <b>Email deleted from your list.</b>")
-
-@bot.message_handler(commands=['reset'])
-def reset(m):
-    uid = m.chat.id
-    if users_col is not None:
-        users_col.delete_one({"uid": uid})
-        history_col.delete_many({"uid": uid})
-        bot.send_message(uid, "🗑️ <b>All your data has been cleared.</b>")
+            history_col.insert_one({"uid": uid, "email": email, "id_code": str(random.randint(1000, 9999))})
+            bot.send_message(uid, f"✅ <b>Email:</b> <code>{email}</code>")
+    except: bot.send_message(uid, "❌ Server Busy")
 
 if __name__ == "__main__":
+    # 1. Run Flask Server in background for Render's health check
+    threading.Thread(target=run_flask_server, daemon=True).start()
+    
+    # 2. Start Bot and Background Loops
+    set_menu()
     threading.Thread(target=background_loop, daemon=True).start()
+    print(">>> Bot is LIVE")
     bot.polling(none_stop=True)
