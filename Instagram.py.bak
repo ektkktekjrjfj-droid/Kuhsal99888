@@ -5,138 +5,174 @@ import threading
 import random
 import re
 import os
-import dns.resolver
 from pymongo import MongoClient
 from flask import Flask
+from telebot import types
 from concurrent.futures import ThreadPoolExecutor
 
-# --- DUMMY SERVER FOR RENDER (CRITICAL) ---
+# --- RENDER HEALTH CHECK ---
 app = Flask(__name__)
-
 @app.route('/')
-def health_check():
-    return "Bot is Active and Running!", 200
+def health(): return "Kushal Premium is Flying!", 200
 
-def run_flask_server():
-    # Render takes the PORT from environment variables automatically
+def run_flask():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# --- DNS BYPASS ---
-try:
-    dns.resolver.default_resolver = dns.resolver.Resolver(configure=False)
-    dns.resolver.default_resolver.nameservers = ['8.8.8.8', '1.1.1.1']
-except: pass
-
 # --- CONFIG ---
 API_TOKEN = '8300468544:AAF9Q6eC3jBgMzCkJXPebKW-R6d-74BWZO0'
+ADMIN_ID = 6932403164
 MONGO_URI = "mongodb+srv://Elevenyts:Elevenyts@cluster0.vuyc1u2.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
 
 bot = telebot.TeleBot(API_TOKEN, parse_mode="HTML")
 
-# --- MONGODB ---
-users_col = None
-history_col = None
-try:
-    client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True, serverSelectionTimeoutMS=10000)
-    db = client['KushalPremiumStore']
-    users_col = db['users']
-    history_col = db['history']
-    client.admin.command('ping')
-    print("✅ MongoDB Connected")
-except Exception as e:
-    print(f"❌ DB Error: {e}")
+# --- DATABASE ---
+client = MongoClient(MONGO_URI, tlsAllowInvalidCertificates=True)
+db = client['KushalPremiumStore']
+users_col = db['users']
+history_col = db['history']
 
-# --- SPEED HELPERS ---
+# --- KEYBOARDS ---
+def main_menu():
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        types.InlineKeyboardButton("📧 Generate Mail", callback_data="gen_mail"),
+        types.InlineKeyboardButton("📊 My History", callback_data="show_id"),
+        types.InlineKeyboardButton("🗑️ Clear History", callback_data="clear_all"),
+        types.InlineKeyboardButton("📢 Support", url="https://t.me/KUSHALPREMIUMSTORE")
+    )
+    return markup
+
+# --- ENGINE ---
 def get_clean_otp(text):
     matches = re.findall(r'\b\d{4,8}\b', text)
     return matches[0] if matches else "NOT FOUND"
 
-def detect_platform(text):
-    text = text.lower()
-    if "instagram" in text: return "Instagram", "https://instagram.com"
-    if "facebook" in text: return "Facebook", "https://facebook.com"
-    return "Web Service", "https://google.com"
-
-# --- FAST ENGINE ---
 def check_inbox(uid, email, token, last_id):
     try:
         headers = {"Authorization": f"Bearer {token}"}
         r = requests.get("https://api.mail.tm/messages", headers=headers, timeout=5).json()
         msgs = r.get('hydra:member', [])
-        
         if msgs:
             m = msgs[0]
-            m_id = str(m['id'])
-            if m_id != str(last_id):
-                detail = requests.get(f"https://api.mail.tm/messages/{m_id}", headers=headers).json()
-                body = detail.get('intro', '')
-                subj = detail.get('subject', '')
-                otp = get_clean_otp(body + subj)
-                plat_name, plat_url = detect_platform(body + subj)
-
+            if str(m['id']) != str(last_id):
+                detail = requests.get(f"https://api.mail.tm/messages/{m['id']}", headers=headers).json()
+                otp = get_clean_otp(detail.get('intro', '') + detail.get('subject', ''))
+                
                 ui = (
-                    f"📧 <b>Account:</b> <code>{email}</code>\n"
-                    f"📝 <b>Subject:</b> <i>{subj}</i>\n"
-                    f"🔗 <b>Platform:</b> <a href='{plat_url}'>{plat_name}</a>\n"
+                    f"✨ <b>NEW MESSAGE RECEIVED</b> ✨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📧 <b>Mail:</b> <code>{email}</code>\n"
+                    f"📝 <b>Subject:</b> <i>{detail.get('subject')}</i>\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
                     f"⚡ <b>OTP CODE:</b> <code>{otp}</code>\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🔹 <i>Tap code to copy instantly</i>"
+                    f"🔹 <i>Kushal Premium Service</i>"
                 )
-                bot.send_message(uid, ui, disable_web_page_preview=True)
-                if users_col is not None:
-                    users_col.update_one({"uid": uid}, {"$set": {"last_id": m_id}})
+                bot.send_message(uid, ui)
+                users_col.update_one({"uid": uid}, {"$set": {"last_id": m['id']}})
     except: pass
 
 def background_loop():
     while True:
         try:
-            if users_col is not None:
-                all_users = list(users_col.find({"token": {"$exists": True}}))
-                with ThreadPoolExecutor(max_workers=30) as exe:
-                    for user in all_users:
-                        exe.submit(check_inbox, user['uid'], user['email'], user['token'], user.get('last_id', '0'))
+            all_users = list(users_col.find({"token": {"$exists": True}}))
+            with ThreadPoolExecutor(max_workers=50) as exe:
+                for user in all_users:
+                    exe.submit(check_inbox, user['uid'], user['email'], user['token'], user.get('last_id', '0'))
         except: pass
-        time.sleep(1.5)
+        time.sleep(1)
 
-# --- MENU & START ---
-def set_menu():
-    bot.set_my_commands([
-        telebot.types.BotCommand("start", "🏠 Home"),
-        telebot.types.BotCommand("generate", "📧 Get Mail"),
-        telebot.types.BotCommand("id", "📊 My History"),
-        telebot.types.BotCommand("reset", "🗑️ Clear Data")
-    ])
-
+# --- START COMMAND (WITH PHOTO & MENTION) ---
 @bot.message_handler(commands=['start'])
 def welcome(m):
-    set_menu()
-    bot.reply_to(m, "🚀 <b>Kushal Premium Store LIVE!</b>\n\nUse /generate to get an email.")
+    uid = m.chat.id
+    first_name = m.from_user.first_name
+    username = f"@{m.from_user.username}" if m.from_user.username else "No Username"
+    
+    # User mention highlight
+    user_mention = f"<a href='tg://user?id={uid}'>{first_name}</a>"
+    
+    # Save user to DB
+    users_col.update_one({"uid": uid}, {"$set": {"name": first_name, "username": username}}, upsert=True)
 
-@bot.message_handler(commands=['generate'])
-def gen(m):
+    welcome_text = (
+        f"🌟 <b>Welcome to KUSHAL PREMIUM STORE</b> 🌟\n\n"
+        f"👤 <b>User:</b> {user_mention}\n"
+        f"🆔 <b>ID:</b> <code>{uid}</code>\n"
+        f"🛠️ <b>Status:</b> <code>Premium Active</code>\n\n"
+        f"<i>Bhai, yahan aapko ultra-fast temporary emails milenge. Niche diye gaye buttons use karein!</i>"
+    )
+
+    try:
+        # Get user profile photo
+        photos = bot.get_user_profile_photos(uid)
+        if photos.total_count > 0:
+            bot.send_photo(uid, photos.photos[0][-1].file_id, caption=welcome_text, reply_markup=main_menu())
+        else:
+            bot.send_message(uid, welcome_text, reply_markup=main_menu())
+    except:
+        bot.send_message(uid, welcome_text, reply_markup=main_menu())
+
+# --- CALLBACK HANDLERS ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    uid = call.message.chat.id
+    if call.data == "gen_mail":
+        bot.answer_callback_query(call.id, "Generating...")
+        generate_logic(call.message)
+    elif call.data == "show_id":
+        show_history(call.message)
+    elif call.data == "clear_all":
+        history_col.delete_many({"uid": uid})
+        bot.answer_callback_query(call.id, "History Cleared!")
+        bot.edit_message_caption("🗑️ Aapki saari history delete kar di gayi hai.", uid, call.message.message_id, reply_markup=main_menu())
+
+def generate_logic(m):
     uid = m.chat.id
     try:
-        doms = requests.get("https://api.mail.tm/domains").json()['hydra:member']
-        email = f"kushal{random.randint(100,999)}@{doms[0]['domain']}"
+        dom = requests.get("https://api.mail.tm/domains").json()['hydra:member'][0]['domain']
+        email = f"kushal{random.randint(1000,9999)}@{dom}"
         pwd = "password123"
         requests.post("https://api.mail.tm/accounts", json={"address": email, "password": pwd})
-        tk = requests.post("https://api.mail.tm/token", json={"address": email, "password": pwd}).json()
-        token = tk.get('token')
+        token = requests.post("https://api.mail.tm/token", json={"address": email, "password": pwd}).json().get('token')
 
-        if token and users_col is not None:
+        if token:
             users_col.update_one({"uid": uid}, {"$set": {"email": email, "token": token, "last_id": "0"}}, upsert=True)
-            history_col.insert_one({"uid": uid, "email": email, "id_code": str(random.randint(1000, 9999))})
-            bot.send_message(uid, f"✅ <b>Email:</b> <code>{email}</code>")
-    except: bot.send_message(uid, "❌ Server Busy")
+            history_col.insert_one({"uid": uid, "email": email, "id_code": str(random.randint(10000, 99999))})
+            bot.send_message(uid, f"✅ <b>New Email Generated:</b>\n<code>{email}</code>\n\n<i>Waiting for OTP...</i>")
+    except: bot.send_message(uid, "❌ Service Busy!")
+
+def show_history(m):
+    uid = m.chat.id
+    mails = list(history_col.find({"uid": uid}).limit(10))
+    if not mails:
+        bot.send_message(uid, "❌ No History Found.")
+        return
+    res = "📊 <b>Your Secure History:</b>\n━━━━━━━━━━━━━━━━━━\n"
+    for d in mails:
+        res += f"📧 <code>{d['email']}</code>\n🗑️ Delete: /delete_{d['id_code']}\n\n"
+    bot.send_message(uid, res)
+
+# --- BROADCAST (PHOTO + TEXT) ---
+@bot.message_handler(commands=['broadcast'])
+def start_bc(m):
+    if m.chat.id == ADMIN_ID:
+        msg = bot.send_message(m.chat.id, "📢 Kya broadcast karna hai? (Photo ya Text bhejein)")
+        bot.register_next_step_handler(msg, do_bc)
+
+def do_bc(m):
+    all_users = users_col.find({})
+    for u in all_users:
+        try:
+            if m.content_type == 'photo':
+                bot.send_photo(u['uid'], m.photo[-1].file_id, caption=m.caption)
+            else:
+                bot.send_message(u['uid'], m.text)
+        except: pass
+    bot.send_message(ADMIN_ID, "✅ Broadcast Done!")
 
 if __name__ == "__main__":
-    # 1. Run Flask Server in background for Render's health check
-    threading.Thread(target=run_flask_server, daemon=True).start()
-    
-    # 2. Start Bot and Background Loops
-    set_menu()
+    threading.Thread(target=run_flask, daemon=True).start()
     threading.Thread(target=background_loop, daemon=True).start()
-    print(">>> Bot is LIVE")
     bot.polling(none_stop=True)
